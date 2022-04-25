@@ -1,11 +1,17 @@
+
+# Import the first data set
 numberND <- read.csv("number-of-natural-disaster-events.csv")
+
+# Tidy the data a little - this was very inefficient, I should have just used rename! I also removed the 'All natural disasters' from the data as I wanted to look at how the number compared between different types of disaster
 numberND$Number <- numberND$Number.of.reported.natural.disasters..reported.disasters.
 numberND <- numberND %>% select(-Number.of.reported.natural.disasters..reported.disasters.)
 individuals <- subset(numberND, Entity != "All natural disasters")
 
+# The first plot, also done a little inefficiently as I was experimenting at first
 plot1 <- ggplot(individuals, aes(x = Year, y = Number, colour = Entity))
 plot1 + geom_line(alpha = 0.5) + geom_smooth(se = FALSE, size = 0.3) + theme_minimal() + labs(title = "Number of reported natural disasters since 1900", caption = "Source: Our World In Data", y = "Count")
 
+# The second plot - I removed 'Impact' at the end and so this is messy, this was as it didn't show anything very interesting as there were none reported.
 individuals %>% subset(Entity != "Impact") %>% 
   ggplot(aes(y = fct_reorder(Entity, Number, .fun = median, .desc = F), x = Number, 
              fill = Entity)) 
@@ -15,12 +21,12 @@ individuals %>% subset(Entity != "Impact") %>%
        caption = "Source: Our World in Data", y = "Class of natural disaster", 
        x = "Frequency") + theme_minimal()
 
+# Just tidying up the restriction of individuals
 individuals <- subset(individuals, Entity != "Impact")
-
 `%!in%` <- Negate(`%in%`)
-
 individuals2 <- subset(economicDamage, Entity %!in% c("All natural disasters", "Impact"))
 
+# The third plot
 ggplot(individuals2, aes(x = Year, y = Total.economic.damage.from.natural.disasters..US.., 
                          colour = Entity, alpha = Total.economic.damage.from.natural.disasters..US..)) 
 + geom_point(position = "jitter", show.legend = T, size = 2) 
