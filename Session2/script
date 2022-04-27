@@ -1,0 +1,104 @@
+# building the basic map plot and taking a look at the data to see if it needs cleaning
+usa.states <- map_data(map = "state")
+states.map <- ggplot(usa.states, aes(x = long, y = lat, group = group)) +
+  geom_polygon(fill = NA, colour = "black", size = 0.1) + 
+  coord_quickmap() + 
+  theme_void()
+head(us_rent_income)
+
+# loading an external file to use for the geom_point which we'll add to the map, so we need the state location points
+state.centers <- read_csv("state_centers_data.csv")
+
+# cleaning the data - putting into lower case so it can be merged with the state location data
+rent_income$region <- tolower(rent_income$NAME)
+rent_income$region 
+rent_income_centered <- merge(rent_income, state.centers, by = "region")
+head(rent_income_centered)
+
+# cleaning the data - separating 'variable' into estimate and moe columns, and calculating a 'difference' and 'proportion' column
+rent_income_centered <- rent_income_centered %>% 
+  pivot_wider(names_from = variable, values_from = c(estimate, moe))
+rent_income_centered <- rent_income_centered %>% 
+  mutate(estimate_difference = estimate_income - estimate_rent)
+rent_income_centered <- rent_income_centered %>% 
+  mutate(proportion = estimate_rent/estimate_income)
+
+# cleaning the data - the income was yearly and the rent was monthly, so to compare the two we need the rent also to be yearly
+rent_income_center_annual <- rent_income_centered %>% mutate(estimate_annual_rent = estimate_rent * 12)
+rent_income_center_annual$estimate_annual_rent
+
+# adjusting the proportion to reflect the updated annual rent
+rent_income_center_annual$proportion <- rent_income_center_annual$estimate_annual_rent / rent_income_center_annual$estimate_income
+
+# a first plot utilising geom_point above a map plot, with size, colour and alpha scales - see plot1
+states.map + geom_point(data = rent_income_center_annual, 
+                        aes(x = avg_long, 
+                            y = avg_lat, 
+                            size = proportion, 
+                            group = NULL, 
+                            alpha = proportion, 
+                            colour = estimate_annual_rent)) + 
+  scale_colour_gradient(name = "Estimated median \nyearly income ($)", 
+                          low = "goldenrod", high = "yellowgreen") + 
+  scale_size_continuous(limits = range(rent_income_center_annual$proportion), 
+                        name = "Estimated median \nproportion of yearly \nincome spent on rent ($)", 
+                        labels = c("30%", "35%", "40%", "45%", "50%", "55%")) + 
+  scale_alpha_continuous(limits = range(rent_income_center_annual$proportion), 
+                         name = "Estimated median \nproportion of yearly \nincome spent on rent ($)",
+                         labels = c("30%", "35%", "40%", "45%", "50%", "55%")) + 
+  guides(alpha = guide_legend(nrow = 3), size = guide_legend(nrow = 3)) + 
+  labs(title = "Map of estimated yearly income and proportion of annual income \nspent on rent by US state",
+       caption = "Source: us_rent_income") +
+  theme(legend.position = "bottom", 
+        legend.background = element_rect(fill = "aliceblue", colour = NA), 
+        legend.key.size = unit(0.8, "cm"),
+        legend.margin = margin(10, 10, 10, 10),
+        plot.title = element_text(family = "Palatino", face = "bold"),
+        legend.title = element_text(family = "Palatino"),
+        legend.text = element_text(family = "Palatino"),
+        plot.margin = margin(25, 25, 25, 25))
+
+# for the second plot I wanted to label particular points, the states with the highest and lowest proportion of rent to income
+highest_5_props <- rent_income_center_annual %>% 
+  arrange(desc(proportion)) %>% 
+  slice(1:5)
+lowest_5_props <- rent_income_center_annual %>% 
+  arrange(proportion) %>% 
+  slice(1:5)
+
+# and to calculate the correlation between the two axes
+correl <- round(cor(rent_income_center_annual$estimate_annual_rent, 
+              rent_income_center_annual$proportion), 3)
+
+# the plot - see plot2
+ggplot(rent_income_center_annual, aes(y = proportion, x = estimate_annual_rent)) + 
+  geom_point(colour = "yellowgreen", aes(size = proportion, alpha = proportion)) + 
+  geom_smooth(size = 0.5, level = 0.5, colour = "goldenrod") + 
+  geom_text_repel(
+    data = rent_income_center_annual %>% 
+      filter(proportion %in% 
+               c(highest_5_props$proportion, lowest_5_props$proportion)), 
+    aes(label = state_initials), point.padding = 1.5) +
+  theme(panel.grid.minor = element_blank(),
+        axis.text.x = element_text(angle = 45, margin = margin(r = 10, t = 10)), 
+        panel.grid.major = element_line(colour = "aliceblue"),
+        panel.background = element_rect(fill = "white"),
+        axis.line = element_line(colour = "gray75"), 
+        legend.position = "none",
+        plot.margin = margin(25, 25, 25, 25),
+        plot.title = element_text(family = "Palatino", face = "bold"),
+        legend.title = element_text(family = "Palatino"),
+        legend.text = element_text(family = "Palatino"),
+        axis.text = element_text(family = "Palatino"),
+        axis.title = element_text(family = "Palatino"),
+        plot.subtitle = element_text(family = "Palatino")) +
+  labs(x = "Estimated median annual rent ($)", 
+       y = "Estimated median proportion of yearly income spent on rent",
+       title = "US annual rent vs. proportion of income spent on rent",
+       subtitle = paste0("Correlation: ", correl),
+       caption = "Source: us_rent_income") +
+  geom_point(data = highest_5_props, shape = 21, aes(
+    colour = "firebrick", size = proportion, stroke = 1.5)) +
+  geom_point(data = lowest_5_props, shape = 21, aes(
+    colour = "skyblue3", size = proportion, stroke = 1.5)) +
+  scale_y_continuous(breaks = c(0.3, 0.4, 0.5), labels = c("30%", "40%", "50%"))
