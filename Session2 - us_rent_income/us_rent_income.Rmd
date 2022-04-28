@@ -1,0 +1,236 @@
+---
+title: "Investigating US Annual Rent, Income and their Proportion by State"
+output: html_document
+---
+
+
+We will be looking at the 'us_rent_income' data in R, drawing plots highlighting how the median rent and income varies across US states, and also how this translates to the proportion of income being spent on rent. If we identify a relationship then we can think about the reasons why such a relationship might exist.
+
+## Setup
+
+
+We will load the necessary packages and our data, and have a cursory look at the two data sets. We'll also draw a base map plot which we'll be using later.
+
+```{r setup, results = "hide", message = FALSE}
+library(ggplot2)
+library(dplyr)
+library(maps)
+library(tidyverse)
+library(ggrepel)
+
+rent_income <- us_rent_income
+
+state.centers <- read_csv("state_centers_data.csv")
+```
+
+```{r setup2}
+usa.states <- map_data(map = "state")
+head(us_rent_income)
+
+head(state.centers)
+
+states.map <- ggplot(usa.states, aes(x = long, y = lat, group = group)) +
+  geom_polygon(fill = NA, colour = "black", size = 0.1) + 
+  coord_quickmap() + 
+  theme_void()
+states.map
+```
+
+
+## Cleaning the data
+
+
+We are going to merge the two datasets and clean our merged data. In the cleaning process, we need to pivot to a wider form to eliminate the column 'variable' and replace it with two columns 'estimate' and 'moe'.
+
+Then we will create an additional column using the existing columns in the data frame using 'mutate' - this will be 'proportion'. We also need to adjust the rent values in order to properly compare the rent against income: the income is taken annually but the rent is considered monthly, this is simple enough but we need to ensure that the output of 'mutate' follows this adjustment.
+
+```{r clean}
+rent_income$region <- tolower(rent_income$NAME)
+
+rent_income_centered <- merge(rent_income, state.centers, by = "region")
+head(rent_income_centered)
+
+rent_income_centered <- rent_income_centered %>% 
+  pivot_wider(names_from = variable, values_from = c(estimate, moe))
+
+rent_income_centered <- rent_income_centered %>% 
+  mutate(proportion = estimate_rent/estimate_income)
+
+rent_income_center_annual <- rent_income_centered %>% mutate(estimate_annual_rent = estimate_rent * 12)
+
+rent_income_center_annual$proportion <- rent_income_center_annual$estimate_annual_rent / rent_income_center_annual$estimate_income
+```
+
+
+## Plot 1: Mapping Income and Proportion of Income spent on Rent
+
+
+In this first plot, we will be adding our data to the base map plot we built earlier.
+
+```{r plot 1, fig.align="center"}
+states.map + geom_point(data = rent_income_center_annual, 
+                        aes(x = avg_long, 
+                            y = avg_lat, 
+                            size = proportion, 
+                            group = NULL, 
+                            alpha = proportion, 
+                            colour = estimate_annual_rent)) + 
+  scale_colour_gradient(name = "Estimated median \nyearly income ($)", 
+                          low = "goldenrod", high = "yellowgreen") + 
+  scale_size_continuous(limits = range(rent_income_center_annual$proportion), 
+                        name = "Estimated median \nproportion of yearly \nincome spent on rent ($)", 
+                        labels = c("30%", "35%", "40%", "45%", "50%", "55%")) + 
+  scale_alpha_continuous(limits = range(rent_income_center_annual$proportion), 
+                         name = "Estimated median \nproportion of yearly \nincome spent on rent ($)",
+                         labels = c("30%", "35%", "40%", "45%", "50%", "55%")) + 
+  guides(alpha = guide_legend(nrow = 3), size = guide_legend(nrow = 3)) + 
+  labs(title = "Map of estimated yearly income and proportion of annual income \nspent on rent by US state",
+       caption = "Source: us_rent_income") +
+  theme(legend.position = "bottom", 
+        legend.background = element_rect(fill = "aliceblue", colour = NA), 
+        legend.key.size = unit(0.5, "cm"),
+        legend.margin = margin(5, 5, 5, 5),
+        plot.title = element_text(family = "Palatino", face = "bold", size = 10),
+        legend.title = element_text(family = "Palatino", size = 8),
+        legend.text = element_text(family = "Palatino", size = 6),
+        plot.margin = margin(2, 2, 2, 2))
+```
+
+From this first plot, we can start to generate hypotheses about a possible relationship between yearly income and the proportion of income spent on rent. 
+
+We can see that the greenest points are on either coast, particularly California in the South West and a cluster in the North East. At the other end of the scale, yellower points can be found in Central Northern states and, to a lesser extent, in the South East.
+
+Now taking a look at the second feature of this plot, we see the faintest and smallest points are to be found in Central Northern states. Larger and more opaque points, however, populate coastal and Southern states.
+
+From this, we might suggest that there exists a positive correlation between the two: estimated median yearly income and estimated median proportion of income spent on rent. We will now look into this more closely.
+
+
+## Plot 2: Investigating Possible Correlation between Rent and Proportion of Income spent on Rent
+
+
+For this plot, it would be helpful to be able to label some states so we can refer back to our first plot. For this reason we're going to identify 10 states in this plot - the five states with the highest proportion of rent to income and the five lowest.
+
+We also want to formally calculate the correlation, so we can put a number on trends we think we see in the visualisation of the data.
+
+```{r labels}
+highest_5_props <- rent_income_center_annual %>% 
+  arrange(desc(proportion)) %>% 
+  slice(1:5)
+
+lowest_5_props <- rent_income_center_annual %>% 
+  arrange(proportion) %>% 
+  slice(1:5)
+
+correl_rent_proportion <- round(cor(rent_income_center_annual$estimate_annual_rent, 
+              rent_income_center_annual$proportion), 3)
+
+correl_income_proportion <- round(cor(rent_income_center_annual$estimate_income, 
+              rent_income_center_annual$proportion), 3)
+```
+
+
+Now we can draw our second plot.
+
+
+```{r plot2, message=FALSE, fig.align="center"}
+ggplot(rent_income_center_annual, aes(y = proportion, x = estimate_annual_rent)) + 
+  geom_point(colour = "yellowgreen", aes(size = proportion, alpha = proportion)) + 
+  geom_smooth(size = 0.5, level = 0.5, colour = "goldenrod") + 
+  geom_text_repel(
+    data = rent_income_center_annual %>% 
+      filter(proportion %in% 
+               c(highest_5_props$proportion, lowest_5_props$proportion)), 
+    aes(label = state_initials), point.padding = 5, size = 3) +
+  theme(panel.grid.minor = element_blank(),
+        axis.text.x = element_text(angle = 45, margin = margin(r = 15, t = 5), hjust = 1), 
+        panel.grid.major = element_line(colour = "aliceblue"),
+        panel.background = element_rect(fill = "white"),
+        axis.line = element_line(colour = "gray75"), 
+        legend.position = "none",
+        plot.margin = margin(5, 5, 5, 5),
+        plot.title = element_text(family = "Palatino", face = "bold", size = 10),
+        legend.title = element_text(family = "Palatino", size = 8),
+        legend.text = element_text(family = "Palatino", size = 6),
+        axis.text = element_text(family = "Palatino"),
+        axis.title = element_text(family = "Palatino"),
+        plot.subtitle = element_text(family = "Palatino", hjust = 1, size = 8),
+        axis.title.y = element_text(angle = 90, vjust = 0.5)) +
+  labs(x = "Estimated median annual rent ($)", 
+       y = "Estimated \nproportion of income",
+       title = "Annual rent vs. proportion of income \nspent on rent by US state",
+       subtitle = paste0("Correlation: ", correl_rent_proportion),
+       caption = "Source: us_rent_income") +
+  geom_point(data = highest_5_props, shape = 21, aes(
+    colour = "firebrick", size = proportion, stroke = 1.5)) +
+  geom_point(data = lowest_5_props, shape = 21, aes(
+    colour = "skyblue3", size = proportion, stroke = 1.5)) +
+  scale_y_continuous(breaks = c(0.3, 0.4, 0.5), labels = c("30%", "40%", "50%")) +
+  coord_fixed(clip = "off", ratio = 18000)
+```
+
+We can see a correlation coefficient of 0.733 to three significant figures, and this represents the broad upwards trend shown. Generally speaking, in states where the rent is higher, the rent as a proportion of income is also higher.
+
+What this suggests is that differences in rent between states are not matched by differences in income. In other words, as we move between states, rents increase at a faster rate than incomes.
+
+Before we explore this further, we can note that the five states ringed in blue are those we identified as the yellower and smaller in the first plot, and those ringed in red are precisely the coastal states that were represented by large green points.
+
+Let's return to the suggestion above that, among US states, rents increase at a faster rate than incomes.
+
+
+## Plot 3: Investigating Possible Correlation between Income and Proportion of Income spent on Rent
+
+
+For this plot, we are just going to swap the x-axis to represent annual income, rather than rent shown above.
+
+
+```{r plot3, message=FALSE, fig.align="center"}
+ggplot(rent_income_center_annual, aes(y = proportion, x = estimate_income)) + 
+  geom_point(colour = "yellowgreen", aes(size = proportion, alpha = proportion)) + 
+  geom_smooth(size = 0.5, level = 0.5, colour = "goldenrod") + 
+  geom_text_repel(
+    data = rent_income_center_annual %>% 
+      filter(proportion %in% 
+               c(highest_5_props$proportion, lowest_5_props$proportion)), 
+    aes(label = state_initials), point.padding = 5, size = 3) +
+  theme(panel.grid.minor = element_blank(),
+        axis.text.x = element_text(angle = 45, margin = margin(r = 15, t = 5), hjust = 1), 
+        panel.grid.major = element_line(colour = "aliceblue"),
+        panel.background = element_rect(fill = "white"),
+        axis.line = element_line(colour = "gray75"), 
+        legend.position = "none",
+        plot.margin = margin(5, 5, 5, 5),
+        plot.title = element_text(family = "Palatino", face = "bold", size = 10),
+        legend.title = element_text(family = "Palatino", size = 8),
+        legend.text = element_text(family = "Palatino", size = 6),
+        axis.text = element_text(family = "Palatino"),
+        axis.title = element_text(family = "Palatino"),
+        plot.subtitle = element_text(family = "Palatino", hjust = 1, size = 8),
+        axis.title.y = element_text(angle = 90, vjust = 0.5)) +
+  labs(x = "Estimated median annual income ($)", 
+       y = "Estimated \nproportion of income",
+       title = "Annual income vs. proportion of income \nspent on rent by US state",
+       subtitle = paste0("Correlation: ", correl_income_proportion),
+       caption = "Source: us_rent_income") +
+  geom_point(data = highest_5_props, shape = 21, aes(
+    colour = "firebrick", size = proportion, stroke = 1.5)) +
+  geom_point(data = lowest_5_props, shape = 21, aes(
+    colour = "skyblue3", size = proportion, stroke = 1.5)) +
+  scale_y_continuous(breaks = c(0.3, 0.4, 0.5), labels = c("30%", "40%", "50%")) +
+  coord_fixed(clip = "off", ratio = 40000)
+```
+
+Here we can see that our two groups of states occupy similar territory when it comes to estimated median income, but vary greatly on the proportion of this income spent on rent. This is demonstrated numerically with our correlation coefficient of 0.112 to three significant figures.
+
+## Concluding Remarks
+
+
+By comparing the two scatter plots above, we can see that there is a correlation between rent and proportion of income spent on rent, but no correlation between income and proportion of income spent on rent. Thus we can conclude from our data that states with a higher median rent, the median income is not higher in the same proportion. In other words, given that a state has a high median rent, it does not follow that its median income will be similarly high.
+
+The data used contains median incomes and rents. The median, as a measure, can hide great variation within our data and a different statistic could provide a different picture. This would need further investigation but we can speculate.
+*   The median could hide a great spread of incomes (or rents) which would represent a community of extremes in wealth (or housing conditions) in some states. Investigating this would change the focus from *between* states to *within* states.
+*   Using the mean could start to iron out such spread, however it would introduce skew as a factor to consider.
+
+
+
+
+
